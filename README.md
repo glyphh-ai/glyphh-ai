@@ -199,9 +199,14 @@ Need enterprise features, custom SLAs, or on-premise deployment? [Contact sales 
 
 ## License
 
-Glyphh SDK is available under the [MIT License](LICENSE).
+Glyphh is available under the [Glyphh AI Community License](LICENSE).
 
-Glyphh Runtime requires a license for production use. See [Licensing](docs/licensing.md) for details.
+- ✓ Free to download and use for development
+- ✓ Free tier available for production (1 model, 1,000 glyphs)
+- ✓ Source code viewable for learning
+- ✗ Not open source — cannot redistribute or build competing products
+
+Production use beyond the free tier requires a license. See [Licensing](docs/licensing.md) for details.
 
 ## Support
 
