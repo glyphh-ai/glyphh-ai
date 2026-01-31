@@ -10,9 +10,7 @@
   <strong>When your LLM can't afford to be wrong, sidecar it with Glyphh.</strong>
 </p>
 
-## The Sidecar for AI Agents
-
-Glyphh isn't here to replace your LLM—it's here to make it better. 
+## The Sidecar for LLM + RAG Pipelines. 
 
 LLMs are incredible at understanding context, generating content, and handling ambiguity. But they hallucinate. They can't cite sources. They give different answers to the same question. RAG helps with retrieval but still lets the LLM generate the final answer—and hallucinate along the way. Knowledge graphs provide structure but are rigid, expensive to maintain, and can't handle semantic similarity.
 
@@ -46,7 +44,7 @@ For many use cases, "good enough" is fine. For others—faq, compliance, medical
 └─────────────────────────────────────────────────┘
 ```
 
-**The pattern is simple:** Let Glyphh handle queries it can answer deterministically. Fall back to the LLM for everything else. Your agent gets the best of both worlds.
+**The pattern is simple:** Let Glyphh handle queries it can answer deterministically. Fall back to your LLM for everything else. Your agent gets the best of both worlds.
 
 ## What is Glyphh?
 
