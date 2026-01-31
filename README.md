@@ -187,7 +187,7 @@ docker run -d \
 | All SDK features | Production license key |
 | Community support | Priority support |
 
-Need enterprise features, custom SLAs, or on-premise deployment? [Contact sales →](mailto:sales@glyphh.com)
+Need enterprise features, custom SLAs, or on-premise deployment? [Contact sales →](mailto:support@glyphh.ai)
 
 ## Documentation
 
@@ -211,9 +211,9 @@ Production use beyond the free tier requires a license. See [Licensing](docs/lic
 ## Support
 
 - 📖 [Documentation](docs/)
-- 💬 [Discussions](https://github.com/glyphh/glyphh-ai/discussions)
-- 🐛 [Issue Tracker](https://github.com/glyphh/glyphh-ai/issues)
-- 📧 [Contact](mailto:support@glyphh.com)
+- 💬 [Discussions](https://github.com/glyphh-ai/glyphh-ai/discussions)
+- 🐛 [Issue Tracker](https://github.com/glyphh-ai/glyphh-ai/issues)
+- 📧 [Contact](mailto:support@glyphh.ai)
 
 ---
 
