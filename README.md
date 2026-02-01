@@ -97,23 +97,44 @@ pip install glyphh
 ### Basic Usage
 
 ```python
-from glyphh import GlyphhModel, Concept, EncoderConfig
+from glyphh import (
+    Encoder, EncoderConfig, Concept, 
+    SimilarityCalculator, LayerConfig, SegmentConfig, Role
+)
 
-# Create a model
-config = EncoderConfig(dimension=10000, seed=42)
-model = GlyphhModel(config)
+# Configure the encoder with explicit structure
+config = EncoderConfig(
+    dimension=10000,
+    seed=42,
+    layers=[
+        LayerConfig(
+            name="semantic",
+            segments=[
+                SegmentConfig(
+                    name="attributes",
+                    roles=[
+                        Role(name="domain", similarity_weight=0.8),
+                        Role(name="type", similarity_weight=1.0),
+                    ]
+                )
+            ]
+        )
+    ]
+)
 
-# Encode concepts
+# Create encoder and encode concepts
+encoder = Encoder(config)
+
 concept = Concept(
     name="machine learning",
     attributes={"domain": "AI", "type": "technique"}
 )
-glyph = model.encode(concept)
+glyph = encoder.encode(concept)
 
-# Find similar concepts
-results = model.similarity_search("deep learning", top_k=5)
-for result in results:
-    print(f"{result.concept}: {result.score:.3f}")
+# Compute similarity between concepts
+calculator = SimilarityCalculator()
+result = calculator.compute(glyph1, glyph2)
+print(f"Similarity: {result.score:.3f}")
 ```
 
 ## Getting Started

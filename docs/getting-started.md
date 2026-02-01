@@ -41,16 +41,35 @@ docker pull ghcr.io/glyphh/runtime:lite
 Create a file called `notebook.py`:
 
 ```python
-from glyphh import GlyphhModel, Concept, EncoderConfig
+from glyphh import (
+    Encoder, EncoderConfig, Concept, GlyphhModel,
+    SimilarityCalculator, LayerConfig, SegmentConfig, Role
+)
 
-# Configure the encoder
+# Configure the encoder with explicit structure
 config = EncoderConfig(
     dimension=10000,  # Vector dimension (higher = more capacity)
     seed=42,          # Reproducible encoding
+    layers=[
+        LayerConfig(
+            name="semantic",
+            similarity_weight=1.0,
+            segments=[
+                SegmentConfig(
+                    name="attributes",
+                    roles=[
+                        Role(name="domain", similarity_weight=0.8),
+                        Role(name="type", similarity_weight=1.0),
+                        Role(name="description", similarity_weight=0.6),
+                    ]
+                )
+            ]
+        )
+    ]
 )
 
-# Create model
-model = GlyphhModel(config)
+# Create encoder
+encoder = Encoder(config)
 
 # Define concepts
 concepts = [
@@ -72,16 +91,17 @@ concepts = [
     ),
 ]
 
-# Encode concepts
+# Encode concepts into glyphs
+glyphs = []
 for concept in concepts:
-    glyph = model.encode(concept)
+    glyph = encoder.encode(concept)
+    glyphs.append(glyph)
     print(f"Encoded: {concept.name}")
 
-# Test similarity search
-print("\nSimilarity search for 'AI techniques':")
-results = model.similarity_search("AI techniques", top_k=3)
-for result in results:
-    print(f"  {result.concept}: {result.score:.3f}")
+# Compute similarity between concepts
+calculator = SimilarityCalculator()
+result = calculator.compute(glyphs[0], glyphs[1])
+print(f"\nSimilarity between concepts: {result.score:.3f}")
 ```
 
 Run it:
@@ -93,14 +113,23 @@ python notebook.py
 ### 2. Export the Model
 
 ```python
+# Package as a GlyphhModel for deployment
+model = GlyphhModel(
+    name="my-model",
+    version="1.0.0",
+    encoder_config=config,
+    glyphs=glyphs,
+    metadata={"domain": "AI", "description": "AI concepts model"}
+)
+
 # Export as .glyphh file
-model.export("my-model.glyphh")
+model.to_file("my-model.glyphh")
 ```
 
 Or use the CLI:
 
 ```bash
-glyphh export notebook.py -o my-model.glyphh
+glyphh build notebook.py -o my-model.glyphh
 ```
 
 ## Deploying to Runtime
