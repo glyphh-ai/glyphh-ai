@@ -20,14 +20,40 @@ Use Cases:
 - Internal request routing
 """
 
-from glyphh import GlyphhModel, Concept, EncoderConfig
-from glyphh import IntentEncoder, IntentPattern
+from glyphh import (
+    Encoder, EncoderConfig, Concept, GlyphhModel,
+    SimilarityCalculator, LayerConfig, SegmentConfig, Role,
+    IntentEncoder, IntentPattern
+)
 
-# Configure encoder
-config = EncoderConfig(dimension=10000, seed=42)
+# Configure encoder with explicit structure
+config = EncoderConfig(
+    dimension=10000,
+    seed=42,
+    layers=[
+        LayerConfig(
+            name="ticket",
+            similarity_weight=1.0,
+            segments=[
+                SegmentConfig(
+                    name="classification",
+                    roles=[
+                        Role(name="category", similarity_weight=1.0),
+                        Role(name="team", similarity_weight=0.8),
+                        Role(name="priority", similarity_weight=0.9),
+                        Role(name="keywords", similarity_weight=0.7),
+                        Role(name="description", similarity_weight=0.6),
+                    ]
+                )
+            ]
+        )
+    ]
+)
 
-# Create model
-model = GlyphhModel(config)
+# Create encoder and calculator
+encoder = Encoder(config)
+calculator = SimilarityCalculator()
+print(f"Encoder created: space_id={encoder.space_id}")
 
 # =============================================================================
 # Define Support Categories with Team Assignments
@@ -103,9 +129,11 @@ categories = [
 ]
 
 # Encode categories
-print("Encoding support categories...")
+print("\nEncoding support categories...")
+category_glyphs = {}
 for category in categories:
-    glyph = model.encode(category)
+    glyph = encoder.encode(category)
+    category_glyphs[category.name] = (category, glyph)
     print(f"  ✓ {category.name} → {category.attributes['team']}")
 
 # =============================================================================
@@ -116,54 +144,61 @@ historical_tickets = [
     Concept(
         name="ticket_001",
         attributes={
-            "subject": "Can't log into my account",
-            "body": "I've been trying to log in but it says my password is wrong",
-            "resolved_category": "account",
-            "resolution_time_hours": 1.5
+            "category": "account",
+            "team": "Account Services",
+            "priority": "high",
+            "keywords": "login password",
+            "description": "Can't log into my account - password is wrong"
         }
     ),
     Concept(
         name="ticket_002",
         attributes={
-            "subject": "Double charged on my credit card",
-            "body": "I was charged twice for my monthly subscription",
-            "resolved_category": "billing",
-            "resolution_time_hours": 12
+            "category": "billing",
+            "team": "Finance Support",
+            "priority": "medium",
+            "keywords": "charged twice subscription",
+            "description": "Double charged on credit card for monthly subscription"
         }
     ),
     Concept(
         name="ticket_003",
         attributes={
-            "subject": "App crashes when I click export",
-            "body": "Every time I try to export my data the application crashes",
-            "resolved_category": "technical",
-            "resolution_time_hours": 6
+            "category": "technical",
+            "team": "Technical Support",
+            "priority": "high",
+            "keywords": "crash export error",
+            "description": "App crashes when clicking export button"
         }
     ),
     Concept(
         name="ticket_004",
         attributes={
-            "subject": "Would love to see dark mode",
-            "body": "It would be great if you could add a dark mode option",
-            "resolved_category": "product",
-            "resolution_time_hours": 0
+            "category": "product",
+            "team": "Product Team",
+            "priority": "low",
+            "keywords": "feature dark mode",
+            "description": "Would love to see dark mode option"
         }
     ),
     Concept(
         name="ticket_005",
         attributes={
-            "subject": "I want to cancel my subscription",
-            "body": "Please cancel my account effective immediately",
-            "resolved_category": "retention",
-            "resolution_time_hours": 0.5
+            "category": "retention",
+            "team": "Retention Team",
+            "priority": "urgent",
+            "keywords": "cancel subscription",
+            "description": "Want to cancel my subscription immediately"
         }
     ),
 ]
 
 print("\nEncoding historical tickets...")
+ticket_glyphs = {}
 for ticket in historical_tickets:
-    glyph = model.encode(ticket)
-    print(f"  ✓ {ticket.name}: {ticket.attributes['subject'][:40]}...")
+    glyph = encoder.encode(ticket)
+    ticket_glyphs[ticket.name] = (ticket, glyph)
+    print(f"  ✓ {ticket.name}: {ticket.attributes['description'][:40]}...")
 
 # =============================================================================
 # Set up Intent Patterns for Ticket Classification
@@ -240,8 +275,6 @@ intent_encoder.add_pattern(IntentPattern(
     }
 ))
 
-model.intent_encoder = intent_encoder
-
 # =============================================================================
 # Ticket Routing Function
 # =============================================================================
@@ -252,14 +285,6 @@ def route_ticket(subject: str, body: str, confidence_threshold: float = 0.7):
     
     Uses intent matching first, then falls back to similarity search
     against historical tickets and category definitions.
-    
-    Returns:
-    - team: Assigned team
-    - category: Ticket category
-    - priority: Priority level
-    - sla_hours: SLA in hours
-    - confidence: Routing confidence
-    - similar_tickets: Related historical tickets
     """
     ticket_text = f"{subject} {body}"
     
@@ -269,60 +294,64 @@ def route_ticket(subject: str, body: str, confidence_threshold: float = 0.7):
     print('='*60)
     
     # Try intent matching first
-    intent_match = model.intent_encoder.match_intent(ticket_text)
+    intent_match = intent_encoder.match_intent(ticket_text)
     
-    if intent_match.is_high_confidence():
+    if intent_match and intent_match.confidence > confidence_threshold:
         template = intent_match.structured_query
         print(f"\n✓ Intent Match: {intent_match.intent_type}")
         print(f"  Confidence: {intent_match.confidence:.2f}")
         
-        # Get full category details
-        category_results = model.similarity_search(
-            template.get("category", ""),
-            top_k=1,
-            filters={"category": template.get("category")}
-        )
-        
-        if category_results:
-            cat = category_results[0].attributes
-            return {
-                "team": cat.get("team", template.get("team")),
-                "category": cat.get("category"),
-                "priority": template.get("priority", cat.get("priority")),
-                "sla_hours": cat.get("sla_hours"),
-                "confidence": intent_match.confidence,
-                "match_method": "intent",
-                "similar_tickets": []
-            }
+        return {
+            "team": template.get("team", "Triage Queue"),
+            "category": template.get("category", "unknown"),
+            "priority": template.get("priority", "medium"),
+            "sla_hours": 24,
+            "confidence": intent_match.confidence,
+            "match_method": "intent",
+            "similar_tickets": []
+        }
     
     # Fall back to similarity search
     print("\n? No strong intent match, using similarity search...")
     
-    # Search against categories
-    category_results = model.similarity_search(ticket_text, top_k=3)
+    # Create a ticket concept for similarity matching
+    ticket_concept = Concept(
+        name="incoming_ticket",
+        attributes={
+            "category": "unknown",
+            "team": "unknown",
+            "priority": "medium",
+            "keywords": ticket_text,
+            "description": ticket_text
+        }
+    )
+    ticket_glyph = encoder.encode(ticket_concept)
     
-    if category_results and category_results[0].score >= confidence_threshold:
-        top_match = category_results[0]
-        attrs = top_match.attributes
-        
-        print(f"\n✓ Category Match: {top_match.concept}")
-        print(f"  Confidence: {top_match.score:.2f}")
-        
-        # Find similar historical tickets
-        similar = model.similarity_search(
-            ticket_text,
-            top_k=3,
-            filters={"resolved_category": attrs.get("category")}
+    # Find most similar category
+    best_match = None
+    best_score = 0
+    for cat_name, (cat_concept, cat_glyph) in category_glyphs.items():
+        result = calculator.compute_similarity(
+            ticket_glyph, cat_glyph,
+            edge_type="neural_cortex"
         )
+        if result.score > best_score:
+            best_score = result.score
+            best_match = cat_concept
+    
+    if best_match and best_score >= confidence_threshold:
+        attrs = best_match.attributes
+        print(f"\n✓ Category Match: {best_match.name}")
+        print(f"  Confidence: {best_score:.2f}")
         
         return {
             "team": attrs.get("team"),
             "category": attrs.get("category"),
             "priority": attrs.get("priority"),
             "sla_hours": attrs.get("sla_hours"),
-            "confidence": top_match.score,
+            "confidence": best_score,
             "match_method": "similarity",
-            "similar_tickets": [s.concept for s in similar[:3]]
+            "similar_tickets": []
         }
     
     # Low confidence - escalate to human
@@ -332,7 +361,7 @@ def route_ticket(subject: str, body: str, confidence_threshold: float = 0.7):
         "category": "unknown",
         "priority": "medium",
         "sla_hours": 24,
-        "confidence": category_results[0].score if category_results else 0,
+        "confidence": best_score if best_match else 0,
         "match_method": "escalation",
         "similar_tickets": []
     }
@@ -376,14 +405,31 @@ for ticket in test_tickets:
     print(f"  → SLA: {result['sla_hours']} hours")
 
 # =============================================================================
-# Export Model
+# Package and Export Model
 # =============================================================================
 
 print("\n" + "="*60)
-print("EXPORTING MODEL")
+print("PACKAGING MODEL")
 print("="*60)
 
-model.export("ticket-routing.glyphh")
+# Collect all glyphs
+all_glyphs = [glyph for _, glyph in category_glyphs.values()]
+all_glyphs.extend([glyph for _, glyph in ticket_glyphs.values()])
+
+model = GlyphhModel(
+    name="ticket-routing",
+    version="1.0.0",
+    encoder_config=config,
+    glyphs=all_glyphs,
+    metadata={
+        "domain": "support",
+        "description": "Support ticket routing model",
+        "num_categories": len(categories),
+        "num_historical_tickets": len(historical_tickets)
+    }
+)
+
+model.to_file("ticket-routing.glyphh")
 print("✓ Model exported to ticket-routing.glyphh")
 
 print("\nDeploy to runtime:")
@@ -394,4 +440,9 @@ print("    --data-binary @ticket-routing.glyphh")
 print("\nRoute ticket via API:")
 print('  curl -X POST http://localhost:8000/api/v1/ticket-routing/route \\')
 print('    -H "Content-Type: application/json" \\')
-print('    -d \'{"subject": "Can\\'t log in", "body": "Password not working"}\'')
+print("    -d '{\"subject\": \"Cannot log in\", \"body\": \"Password not working\"}'")
+
+# Cleanup
+import os
+if os.path.exists("ticket-routing.glyphh"):
+    os.remove("ticket-routing.glyphh")

@@ -11,7 +11,7 @@ This example demonstrates:
 1. Creating time-series data points as concepts
 2. Temporal edges for tracking changes over time
 3. Similarity search to find historical pattern matches
-4. Trend prediction using beam search
+4. Trend prediction using pattern matching
 
 Use Cases:
 - Market trend detection
@@ -20,14 +20,39 @@ Use Cases:
 - Anomaly detection
 """
 
-from glyphh import GlyphhModel, Concept, EncoderConfig
-from glyphh import TemporalEncoder, BeamSearchPredictor
+from glyphh import (
+    Encoder, EncoderConfig, Concept, GlyphhModel,
+    SimilarityCalculator, LayerConfig, SegmentConfig, Role
+)
 
-# Configure encoder
-config = EncoderConfig(dimension=10000, seed=42)
+# Configure encoder with explicit structure
+config = EncoderConfig(
+    dimension=10000,
+    seed=42,
+    layers=[
+        LayerConfig(
+            name="metrics",
+            similarity_weight=1.0,
+            segments=[
+                SegmentConfig(
+                    name="trend_data",
+                    roles=[
+                        Role(name="metric_name", similarity_weight=0.8),
+                        Role(name="category", similarity_weight=0.7),
+                        Role(name="change_pct", similarity_weight=1.0),
+                        Role(name="volatility", similarity_weight=0.9),
+                        Role(name="pattern_name", similarity_weight=1.0),
+                    ]
+                )
+            ]
+        )
+    ]
+)
 
-# Create model
-model = GlyphhModel(config)
+# Create encoder and calculator
+encoder = Encoder(config)
+calculator = SimilarityCalculator()
+print(f"Encoder created: space_id={encoder.space_id}")
 
 # =============================================================================
 # Define Metric Snapshot Concepts
@@ -36,19 +61,14 @@ model = GlyphhModel(config)
 def create_metric_snapshot(
     metric_name: str,
     period: str,  # "2025-W01", "2025-W02", etc.
-    # Core metrics
     value: float,
-    change_pct: float,  # vs previous period
-    # Trend indicators
+    change_pct: float,
     moving_avg_7d: float,
     moving_avg_30d: float,
-    volatility: float,  # standard deviation
-    # Context
+    volatility: float,
     category: str,
     subcategory: str,
-    # Seasonality
     is_holiday_period: bool = False,
-    day_of_week_effect: float = 0,  # -1 to 1
 ):
     """Create a metric snapshot for trend analysis."""
     return Concept(
@@ -56,18 +76,14 @@ def create_metric_snapshot(
         attributes={
             "metric_name": metric_name,
             "period": period,
-            "value": value,
-            "change_pct": change_pct,
-            "moving_avg_7d": moving_avg_7d,
-            "moving_avg_30d": moving_avg_30d,
-            "volatility": volatility,
+            "value": str(value),
+            "change_pct": str(change_pct),
+            "moving_avg_7d": str(moving_avg_7d),
+            "moving_avg_30d": str(moving_avg_30d),
+            "volatility": str(volatility),
             "category": category,
             "subcategory": subcategory,
-            "is_holiday_period": is_holiday_period,
-            "day_of_week_effect": day_of_week_effect,
-            # For cortex similarity
-            "layer": category,
-            "role": metric_name,
+            "is_holiday_period": str(is_holiday_period),
         }
     )
 
@@ -81,10 +97,9 @@ trend_patterns = [
         attributes={
             "pattern_name": "Growth Spike",
             "description": "Rapid increase followed by stabilization",
-            "change_pct_min": 20,
-            "volatility_high": True,
-            "typical_duration_weeks": 2,
-            "characteristics": ["rapid growth", "high volatility", "potential peak"]
+            "change_pct": "high",
+            "volatility": "high",
+            "characteristics": "rapid growth, high volatility, potential peak"
         }
     ),
     Concept(
@@ -92,10 +107,9 @@ trend_patterns = [
         attributes={
             "pattern_name": "Steady Growth",
             "description": "Consistent upward trend with low volatility",
-            "change_pct_range": [5, 15],
-            "volatility_low": True,
-            "typical_duration_weeks": 8,
-            "characteristics": ["sustainable", "predictable", "healthy"]
+            "change_pct": "moderate",
+            "volatility": "low",
+            "characteristics": "sustainable, predictable, healthy"
         }
     ),
     Concept(
@@ -103,9 +117,9 @@ trend_patterns = [
         attributes={
             "pattern_name": "Decline",
             "description": "Consistent downward trend",
-            "change_pct_max": -5,
-            "typical_duration_weeks": 4,
-            "characteristics": ["concerning", "needs attention", "investigate cause"]
+            "change_pct": "negative",
+            "volatility": "moderate",
+            "characteristics": "concerning, needs attention, investigate cause"
         }
     ),
     Concept(
@@ -113,9 +127,10 @@ trend_patterns = [
         attributes={
             "pattern_name": "Seasonal Peak",
             "description": "Expected increase due to seasonality",
-            "is_holiday_period": True,
-            "typical_duration_weeks": 3,
-            "characteristics": ["expected", "temporary", "plan for capacity"]
+            "change_pct": "high",
+            "volatility": "moderate",
+            "is_holiday_period": "True",
+            "characteristics": "expected, temporary, plan for capacity"
         }
     ),
     Concept(
@@ -123,8 +138,9 @@ trend_patterns = [
         attributes={
             "pattern_name": "Anomaly",
             "description": "Unexpected deviation from normal pattern",
-            "volatility_extreme": True,
-            "characteristics": ["investigate", "potential issue", "or opportunity"]
+            "change_pct": "extreme",
+            "volatility": "extreme",
+            "characteristics": "investigate, potential issue, or opportunity"
         }
     ),
     Concept(
@@ -132,16 +148,18 @@ trend_patterns = [
         attributes={
             "pattern_name": "Plateau",
             "description": "Flat trend after growth period",
-            "change_pct_range": [-2, 2],
-            "volatility_low": True,
-            "characteristics": ["stabilized", "mature", "optimize efficiency"]
+            "change_pct": "flat",
+            "volatility": "low",
+            "characteristics": "stabilized, mature, optimize efficiency"
         }
     ),
 ]
 
 print("Encoding trend patterns...")
+pattern_glyphs = {}
 for pattern in trend_patterns:
-    glyph = model.encode(pattern)
+    glyph = encoder.encode(pattern)
+    pattern_glyphs[pattern.name] = (pattern, glyph)
     print(f"  ✓ {pattern.name}: {pattern.attributes['pattern_name']}")
 
 # =============================================================================
@@ -216,40 +234,17 @@ revenue_data = [
 
 # Encode all metrics
 all_metrics = signups_data + revenue_data
+metric_glyphs = {}
 for metric in all_metrics:
-    glyph = model.encode(metric)
+    glyph = encoder.encode(metric)
+    metric_glyphs[metric.name] = (metric, glyph)
     print(f"  ✓ {metric.name}: {metric.attributes['value']}")
-
-# =============================================================================
-# Create Temporal Edges
-# =============================================================================
-
-print("\nCreating temporal edges...")
-
-temporal_encoder = TemporalEncoder(config)
-
-# Link signups data sequentially
-for i in range(len(signups_data) - 1):
-    edge = temporal_encoder.create_edge(
-        from_concept=signups_data[i],
-        to_concept=signups_data[i + 1],
-        edge_type="metric_transition"
-    )
-    print(f"  ✓ {signups_data[i].attributes['period']} → {signups_data[i+1].attributes['period']}")
-
-# Link revenue data
-for i in range(len(revenue_data) - 1):
-    edge = temporal_encoder.create_edge(
-        from_concept=revenue_data[i],
-        to_concept=revenue_data[i + 1],
-        edge_type="metric_transition"
-    )
 
 # =============================================================================
 # Trend Analysis Functions
 # =============================================================================
 
-def identify_trend(metric_snapshot: Concept):
+def identify_trend(metric_snapshot: Concept, metric_glyph):
     """
     Identify the trend pattern for a metric snapshot.
     
@@ -265,41 +260,49 @@ def identify_trend(metric_snapshot: Concept):
     print(f"Volatility: {attrs['volatility']}")
     
     # Find similar trend patterns
-    results = model.similarity_search(metric_snapshot, top_k=3)
-    
     patterns = []
-    for result in results:
-        if "pattern_name" in result.attributes:
+    for pattern_name, (pattern, pattern_glyph) in pattern_glyphs.items():
+        result = calculator.compute_similarity(
+            metric_glyph, pattern_glyph,
+            edge_type="neural_cortex"
+        )
+        if "pattern_name" in pattern.attributes:
             patterns.append({
-                "pattern": result.attributes["pattern_name"],
+                "pattern": pattern.attributes["pattern_name"],
                 "confidence": result.score,
-                "characteristics": result.attributes.get("characteristics", [])
+                "characteristics": pattern.attributes.get("characteristics", "")
             })
+    
+    # Sort by confidence
+    patterns.sort(key=lambda x: x["confidence"], reverse=True)
     
     if patterns:
         print(f"\nIdentified Pattern: {patterns[0]['pattern']}")
         print(f"Confidence: {patterns[0]['confidence']:.2f}")
-        print(f"Characteristics: {', '.join(patterns[0]['characteristics'])}")
+        print(f"Characteristics: {patterns[0]['characteristics']}")
     
-    return patterns
+    return patterns[:3]
 
 
-def find_similar_periods(metric_snapshot: Concept, top_k: int = 3):
+def find_similar_periods(metric_snapshot: Concept, metric_glyph, top_k: int = 3):
     """
     Find historical periods with similar patterns.
     """
-    results = model.similarity_search(metric_snapshot, top_k=top_k + 1)
-    
     similar = []
-    for result in results:
-        if "period" in result.attributes and result.concept != metric_snapshot.name:
+    for name, (concept, glyph) in metric_glyphs.items():
+        if name != metric_snapshot.name and "period" in concept.attributes:
+            result = calculator.compute_similarity(
+                metric_glyph, glyph,
+                edge_type="neural_cortex"
+            )
             similar.append({
-                "period": result.attributes["period"],
-                "metric": result.attributes["metric_name"],
-                "value": result.attributes["value"],
+                "period": concept.attributes["period"],
+                "metric": concept.attributes["metric_name"],
+                "value": concept.attributes["value"],
                 "similarity": result.score
             })
     
+    similar.sort(key=lambda x: x["similarity"], reverse=True)
     return similar[:top_k]
 
 
@@ -311,6 +314,7 @@ def predict_next_period(metric_history: list):
         return None
     
     latest = metric_history[-1]
+    latest_glyph = metric_glyphs[latest.name][1]
     
     print(f"\n{'='*60}")
     print(f"TREND PREDICTION")
@@ -319,18 +323,17 @@ def predict_next_period(metric_history: list):
     print(f"Value: {latest.attributes['value']}")
     
     # Find similar historical sequences
-    similar = find_similar_periods(latest)
+    similar = find_similar_periods(latest, latest_glyph)
     
     print(f"\nSimilar Historical Periods:")
     for s in similar:
         print(f"  • {s['metric']} {s['period']}: {s['value']} ({s['similarity']:.2f})")
     
-    # Use beam search for prediction
-    predictor = BeamSearchPredictor(beam_width=3, drift_reduction=True)
-    
     # Simplified prediction based on pattern matching
-    avg_change = sum(m.attributes["change_pct"] for m in metric_history[-3:]) / 3
-    predicted_value = latest.attributes["value"] * (1 + avg_change / 100)
+    changes = [float(m.attributes["change_pct"]) for m in metric_history[-3:]]
+    avg_change = sum(changes) / len(changes)
+    current_value = float(latest.attributes["value"])
+    predicted_value = current_value * (1 + avg_change / 100)
     
     print(f"\nPrediction:")
     print(f"  Expected Change: {avg_change:.1f}%")
@@ -352,7 +355,8 @@ print("="*60)
 
 # Analyze each signup period
 for snapshot in signups_data:
-    patterns = identify_trend(snapshot)
+    glyph = metric_glyphs[snapshot.name][1]
+    patterns = identify_trend(snapshot, glyph)
 
 # Predict next period
 print("\n" + "="*60)
@@ -367,17 +371,35 @@ print("SEASONAL ANALYSIS: REVENUE")
 print("="*60)
 
 for snapshot in revenue_data:
-    patterns = identify_trend(snapshot)
+    glyph = metric_glyphs[snapshot.name][1]
+    patterns = identify_trend(snapshot, glyph)
 
 # =============================================================================
-# Export Model
+# Package and Export Model
 # =============================================================================
 
 print("\n" + "="*60)
-print("EXPORTING MODEL")
+print("PACKAGING MODEL")
 print("="*60)
 
-model.export("trend-analysis.glyphh")
+# Collect all glyphs
+all_glyphs = [glyph for _, glyph in pattern_glyphs.values()]
+all_glyphs.extend([glyph for _, glyph in metric_glyphs.values()])
+
+model = GlyphhModel(
+    name="trend-analysis",
+    version="1.0.0",
+    encoder_config=config,
+    glyphs=all_glyphs,
+    metadata={
+        "domain": "analytics",
+        "description": "Trend analysis and prediction model",
+        "num_patterns": len(trend_patterns),
+        "num_metrics": len(all_metrics)
+    }
+)
+
+model.to_file("trend-analysis.glyphh")
 print("✓ Model exported to trend-analysis.glyphh")
 
 print("\nDeploy to runtime:")
@@ -410,3 +432,8 @@ print("""
    - Forecast next period values
    - Confidence-based predictions
 """)
+
+# Cleanup
+import os
+if os.path.exists("trend-analysis.glyphh"):
+    os.remove("trend-analysis.glyphh")

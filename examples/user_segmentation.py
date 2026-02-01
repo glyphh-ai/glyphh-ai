@@ -20,13 +20,52 @@ Use Cases:
 - Feature rollout planning
 """
 
-from glyphh import GlyphhModel, Concept, EncoderConfig
+from glyphh import (
+    Encoder, EncoderConfig, Concept, GlyphhModel,
+    SimilarityCalculator, LayerConfig, SegmentConfig, Role
+)
 
-# Configure encoder
-config = EncoderConfig(dimension=10000, seed=42)
+# Configure encoder with explicit structure
+config = EncoderConfig(
+    dimension=10000,
+    seed=42,
+    layers=[
+        LayerConfig(
+            name="user_profile",
+            similarity_weight=1.0,
+            segments=[
+                SegmentConfig(
+                    name="demographics",
+                    roles=[
+                        Role(name="company_size", similarity_weight=0.8),
+                        Role(name="industry", similarity_weight=0.7),
+                        Role(name="region", similarity_weight=0.5),
+                    ]
+                ),
+                SegmentConfig(
+                    name="engagement",
+                    roles=[
+                        Role(name="monthly_active_days", similarity_weight=1.0),
+                        Role(name="features_used", similarity_weight=0.9),
+                        Role(name="api_calls_monthly", similarity_weight=0.8),
+                    ]
+                ),
+                SegmentConfig(
+                    name="value",
+                    roles=[
+                        Role(name="monthly_spend", similarity_weight=1.0),
+                        Role(name="lifetime_value", similarity_weight=0.9),
+                    ]
+                )
+            ]
+        )
+    ]
+)
 
-# Create model
-model = GlyphhModel(config)
+# Create encoder and calculator
+encoder = Encoder(config)
+calculator = SimilarityCalculator()
+print(f"Encoder created: space_id={encoder.space_id}")
 
 # =============================================================================
 # Define User Profile Concepts
@@ -34,20 +73,16 @@ model = GlyphhModel(config)
 
 def create_user_profile(
     user_id: str,
-    # Demographics
-    company_size: str,  # "startup", "smb", "mid-market", "enterprise"
+    company_size: str,
     industry: str,
     region: str,
-    # Engagement metrics
     monthly_active_days: int,
     features_used: int,
     total_sessions: int,
     avg_session_minutes: float,
-    # Value metrics
     monthly_spend: float,
     lifetime_value: float,
     account_age_months: int,
-    # Behavior patterns
     primary_use_case: str,
     integration_count: int,
     team_members: int,
@@ -58,27 +93,20 @@ def create_user_profile(
         name=f"user_{user_id}",
         attributes={
             "user_id": user_id,
-            # Demographics
             "company_size": company_size,
             "industry": industry,
             "region": region,
-            # Engagement
-            "monthly_active_days": monthly_active_days,
-            "features_used": features_used,
-            "total_sessions": total_sessions,
-            "avg_session_minutes": avg_session_minutes,
-            # Value
-            "monthly_spend": monthly_spend,
-            "lifetime_value": lifetime_value,
-            "account_age_months": account_age_months,
-            # Behavior
+            "monthly_active_days": str(monthly_active_days),
+            "features_used": str(features_used),
+            "total_sessions": str(total_sessions),
+            "avg_session_minutes": str(avg_session_minutes),
+            "monthly_spend": str(monthly_spend),
+            "lifetime_value": str(lifetime_value),
+            "account_age_months": str(account_age_months),
             "primary_use_case": primary_use_case,
-            "integration_count": integration_count,
-            "team_members": team_members,
-            "api_calls_monthly": api_calls_monthly,
-            # Computed segments (for cortex similarity)
-            "layer": company_size,
-            "role": industry,
+            "integration_count": str(integration_count),
+            "team_members": str(team_members),
+            "api_calls_monthly": str(api_calls_monthly),
         }
     )
 
@@ -92,10 +120,10 @@ segment_archetypes = [
         attributes={
             "segment_name": "Power Users",
             "description": "High engagement, heavy feature usage, API-driven",
-            "monthly_active_days_min": 20,
-            "features_used_min": 15,
-            "api_calls_monthly_min": 1000,
-            "characteristics": ["high engagement", "technical", "API-heavy"]
+            "monthly_active_days": "high",
+            "features_used": "high",
+            "api_calls_monthly": "high",
+            "characteristics": "high engagement, technical, API-heavy"
         }
     ),
     Concept(
@@ -103,9 +131,9 @@ segment_archetypes = [
         attributes={
             "segment_name": "Casual Users",
             "description": "Light usage, basic features, occasional login",
-            "monthly_active_days_max": 5,
-            "features_used_max": 5,
-            "characteristics": ["low engagement", "basic needs", "price sensitive"]
+            "monthly_active_days": "low",
+            "features_used": "low",
+            "characteristics": "low engagement, basic needs, price sensitive"
         }
     ),
     Concept(
@@ -114,9 +142,9 @@ segment_archetypes = [
             "segment_name": "Enterprise Champions",
             "description": "Large teams, high spend, multiple integrations",
             "company_size": "enterprise",
-            "team_members_min": 20,
-            "integration_count_min": 5,
-            "characteristics": ["high value", "complex needs", "expansion potential"]
+            "team_members": "high",
+            "integration_count": "high",
+            "characteristics": "high value, complex needs, expansion potential"
         }
     ),
     Concept(
@@ -125,7 +153,7 @@ segment_archetypes = [
             "segment_name": "Growing Teams",
             "description": "Expanding usage, adding team members, increasing spend",
             "company_size": "smb",
-            "characteristics": ["growth trajectory", "upsell potential", "feature hungry"]
+            "characteristics": "growth trajectory, upsell potential, feature hungry"
         }
     ),
     Concept(
@@ -133,15 +161,17 @@ segment_archetypes = [
         attributes={
             "segment_name": "At Risk",
             "description": "Declining engagement, reduced usage",
-            "monthly_active_days_max": 3,
-            "characteristics": ["declining engagement", "churn risk", "needs attention"]
+            "monthly_active_days": "very_low",
+            "characteristics": "declining engagement, churn risk, needs attention"
         }
     ),
 ]
 
 print("Encoding segment archetypes...")
+segment_glyphs = {}
 for segment in segment_archetypes:
-    glyph = model.encode(segment)
+    glyph = encoder.encode(segment)
+    segment_glyphs[segment.name] = (segment, glyph)
     print(f"  ✓ {segment.name}: {segment.attributes['segment_name']}")
 
 # =============================================================================
@@ -200,15 +230,17 @@ users = [
     ),
 ]
 
+user_glyphs = {}
 for user in users:
-    glyph = model.encode(user)
+    glyph = encoder.encode(user)
+    user_glyphs[user.name] = (user, glyph)
     print(f"  ✓ {user.name}: {user.attributes['company_size']}/{user.attributes['industry']}")
 
 # =============================================================================
 # Segmentation Functions
 # =============================================================================
 
-def segment_user(user: Concept):
+def segment_user(user: Concept, user_glyph):
     """
     Assign a user to segments based on similarity to archetypes.
     
@@ -219,31 +251,36 @@ def segment_user(user: Concept):
     print('='*60)
     
     # Find similar segment archetypes
-    results = model.similarity_search(user, top_k=3)
-    
     segments = []
-    for result in results:
-        if "segment_name" in result.attributes:
+    for seg_name, (seg_concept, seg_glyph) in segment_glyphs.items():
+        result = calculator.compute_similarity(
+            user_glyph, seg_glyph,
+            edge_type="neural_cortex"
+        )
+        if "segment_name" in seg_concept.attributes:
             segments.append({
-                "segment": result.attributes["segment_name"],
+                "segment": seg_concept.attributes["segment_name"],
                 "confidence": result.score,
-                "characteristics": result.attributes.get("characteristics", [])
+                "characteristics": seg_concept.attributes.get("characteristics", "")
             })
+    
+    # Sort by confidence
+    segments.sort(key=lambda x: x["confidence"], reverse=True)
     
     if segments:
         print(f"\nPrimary Segment: {segments[0]['segment']}")
         print(f"Confidence: {segments[0]['confidence']:.2f}")
-        print(f"Characteristics: {', '.join(segments[0]['characteristics'])}")
+        print(f"Characteristics: {segments[0]['characteristics']}")
         
         if len(segments) > 1:
             print(f"\nSecondary Segments:")
-            for seg in segments[1:]:
+            for seg in segments[1:3]:
                 print(f"  • {seg['segment']} ({seg['confidence']:.2f})")
     
     return segments
 
 
-def find_similar_users(user: Concept, top_k: int = 5):
+def find_similar_users(user: Concept, user_glyph, top_k: int = 5):
     """
     Find users with similar profiles for cohort analysis.
     """
@@ -251,24 +288,28 @@ def find_similar_users(user: Concept, top_k: int = 5):
     print(f"FINDING SIMILAR USERS TO: {user.name}")
     print('='*60)
     
-    results = model.similarity_search(user, top_k=top_k + 1)
-    
     similar = []
-    for result in results:
-        if result.concept != user.name and "user_id" in result.attributes:
+    for name, (u_concept, u_glyph) in user_glyphs.items():
+        if name != user.name and "user_id" in u_concept.attributes:
+            result = calculator.compute_similarity(
+                user_glyph, u_glyph,
+                edge_type="neural_cortex"
+            )
             similar.append({
-                "user_id": result.attributes["user_id"],
+                "user_id": u_concept.attributes["user_id"],
                 "similarity": result.score,
-                "company_size": result.attributes["company_size"],
-                "industry": result.attributes["industry"]
+                "company_size": u_concept.attributes["company_size"],
+                "industry": u_concept.attributes["industry"]
             })
+    
+    similar.sort(key=lambda x: x["similarity"], reverse=True)
     
     print(f"\nSimilar Users:")
     for s in similar[:top_k]:
         print(f"  • {s['user_id']}: {s['similarity']:.2f}")
         print(f"    {s['company_size']} / {s['industry']}")
     
-    return similar
+    return similar[:top_k]
 
 
 def get_segment_members(segment_name: str):
@@ -276,24 +317,31 @@ def get_segment_members(segment_name: str):
     Get all users belonging to a segment.
     """
     # Find the segment archetype
-    segment_results = model.similarity_search(segment_name, top_k=1)
+    segment_concept = None
+    segment_glyph = None
+    for name, (concept, glyph) in segment_glyphs.items():
+        if concept.attributes.get("segment_name") == segment_name:
+            segment_concept = concept
+            segment_glyph = glyph
+            break
     
-    if not segment_results:
+    if not segment_concept:
         return []
     
-    segment = segment_results[0]
-    
     # Find users similar to this segment
-    user_results = model.similarity_search(segment, top_k=20)
-    
     members = []
-    for result in user_results:
-        if "user_id" in result.attributes:
+    for name, (user, user_glyph) in user_glyphs.items():
+        if "user_id" in user.attributes:
+            result = calculator.compute_similarity(
+                user_glyph, segment_glyph,
+                edge_type="neural_cortex"
+            )
             members.append({
-                "user_id": result.attributes["user_id"],
+                "user_id": user.attributes["user_id"],
                 "fit_score": result.score
             })
     
+    members.sort(key=lambda x: x["fit_score"], reverse=True)
     return members
 
 # =============================================================================
@@ -306,14 +354,17 @@ print("="*60)
 
 # Segment each user
 for user in users:
-    segments = segment_user(user)
+    glyph = user_glyphs[user.name][1]
+    segments = segment_user(user, glyph)
 
 # Find similar users
 print("\n" + "="*60)
 print("COHORT ANALYSIS")
 print("="*60)
 
-find_similar_users(users[0])  # Find users similar to power user
+user_0 = users[0]
+glyph_0 = user_glyphs[user_0.name][1]
+find_similar_users(user_0, glyph_0)
 
 # =============================================================================
 # Segment Distribution Analysis
@@ -332,14 +383,31 @@ for archetype in segment_archetypes:
         print(f"  Avg Fit Score: {avg_fit:.2f}")
 
 # =============================================================================
-# Export Model
+# Package and Export Model
 # =============================================================================
 
 print("\n" + "="*60)
-print("EXPORTING MODEL")
+print("PACKAGING MODEL")
 print("="*60)
 
-model.export("user-segmentation.glyphh")
+# Collect all glyphs
+all_glyphs = [glyph for _, glyph in segment_glyphs.values()]
+all_glyphs.extend([glyph for _, glyph in user_glyphs.values()])
+
+model = GlyphhModel(
+    name="user-segmentation",
+    version="1.0.0",
+    encoder_config=config,
+    glyphs=all_glyphs,
+    metadata={
+        "domain": "marketing",
+        "description": "User segmentation model",
+        "num_segments": len(segment_archetypes),
+        "num_users": len(users)
+    }
+)
+
+model.to_file("user-segmentation.glyphh")
 print("✓ Model exported to user-segmentation.glyphh")
 
 print("\nDeploy to runtime:")
@@ -372,3 +440,8 @@ print("""
    - Find similar users for A/B testing
    - Build lookalike audiences
 """)
+
+# Cleanup
+import os
+if os.path.exists("user-segmentation.glyphh"):
+    os.remove("user-segmentation.glyphh")

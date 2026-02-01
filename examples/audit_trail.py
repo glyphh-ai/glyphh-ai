@@ -37,7 +37,7 @@ config = EncoderConfig(
 )
 
 encoder = Encoder(config)
-temporal = TemporalEncoder(encoder)
+temporal = TemporalEncoder()
 
 print("Audit Trail Management")
 print("=" * 60)
@@ -59,7 +59,7 @@ for event in events:
 # Create temporal edges
 print("\nCreating temporal edges...")
 for i in range(len(glyphs) - 1):
-    delta = temporal.compute_delta(glyphs[i], glyphs[i+1])
+    delta = temporal.compute_temporal_delta(glyphs[i].global_cortex, glyphs[i+1].global_cortex)
     print(f"  ✓ {events[i].name} → {events[i+1].name}")
 
 # Export
