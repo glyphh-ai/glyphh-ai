@@ -2,22 +2,42 @@
 Basic Glyphh Model Example
 
 This example demonstrates:
-1. Creating a model with EncoderConfig
-2. Encoding concepts
-3. Running similarity search
-4. Exporting the model
+1. Creating an encoder with explicit config structure
+2. Encoding concepts into glyphs
+3. Computing similarity between concepts
+4. Packaging and exporting the model
 """
 
-from glyphh import GlyphhModel, Concept, EncoderConfig
+from glyphh import (
+    Encoder, EncoderConfig, Concept, GlyphhModel,
+    SimilarityCalculator, LayerConfig, SegmentConfig, Role
+)
 
-# Configure the encoder
+# Configure the encoder with explicit structure
 config = EncoderConfig(
     dimension=10000,  # Vector dimension
     seed=42,          # For reproducibility
+    layers=[
+        LayerConfig(
+            name="semantic",
+            similarity_weight=1.0,
+            segments=[
+                SegmentConfig(
+                    name="attributes",
+                    roles=[
+                        Role(name="domain", similarity_weight=0.8),
+                        Role(name="type", similarity_weight=1.0),
+                        Role(name="description", similarity_weight=0.6),
+                    ]
+                )
+            ]
+        )
+    ]
 )
 
-# Create model
-model = GlyphhModel(config)
+# Create encoder
+encoder = Encoder(config)
+print(f"Encoder created: space_id={encoder.space_id}")
 
 # Define concepts
 concepts = [
@@ -63,30 +83,49 @@ concepts = [
     ),
 ]
 
-# Encode concepts
-print("Encoding concepts...")
+# Encode concepts into glyphs
+print("\nEncoding concepts...")
+glyphs = []
 for concept in concepts:
-    glyph = model.encode(concept)
+    glyph = encoder.encode(concept)
+    glyphs.append(glyph)
     print(f"  ✓ Encoded: {concept.name}")
 
-# Test similarity search
-print("\nSimilarity search for 'AI techniques':")
-results = model.similarity_search("AI techniques", top_k=3)
-for i, result in enumerate(results, 1):
-    print(f"  {i}. {result.concept}: {result.score:.3f}")
+# Compute similarity between concepts
+print("\nComputing similarities:")
+calculator = SimilarityCalculator()
 
-# Test another query
-print("\nSimilarity search for 'learning from data':")
-results = model.similarity_search("learning from data", top_k=3)
-for i, result in enumerate(results, 1):
-    print(f"  {i}. {result.concept}: {result.score:.3f}")
+# Compare machine learning with other concepts
+ml_glyph = glyphs[0]
+for i, glyph in enumerate(glyphs[1:], 1):
+    result = calculator.compute_similarity(
+        ml_glyph, glyph, 
+        edge_type="neural_cortex"
+    )
+    print(f"  machine learning vs {concepts[i].name}: {result.score:.3f}")
+
+# Package the model for deployment
+print("\nPackaging model...")
+model = GlyphhModel(
+    name="basic-model",
+    version="1.0.0",
+    encoder_config=config,
+    glyphs=glyphs,
+    metadata={
+        "domain": "AI",
+        "description": "Basic AI concepts model",
+        "num_concepts": len(glyphs)
+    }
+)
 
 # Export model
-print("\nExporting model...")
-model.export("basic-model.glyphh")
+model.to_file("basic-model.glyphh")
 print("  ✓ Model exported to basic-model.glyphh")
 
 print("\nDone! You can now deploy this model to the runtime:")
-print("  curl -X POST http://localhost:8000/api/deploy \\")
-print("    -H 'Content-Type: application/octet-stream' \\")
-print("    --data-binary @basic-model.glyphh")
+print("  glyphh runtime deploy basic-model.glyphh")
+
+# Cleanup
+import os
+if os.path.exists("basic-model.glyphh"):
+    os.remove("basic-model.glyphh")

@@ -2,19 +2,42 @@
 Intent Pattern Example
 
 This example demonstrates:
-1. Creating an IntentEncoder
-2. Adding default and custom patterns
-3. Matching natural language queries
-4. Integrating with a model
+1. Creating an IntentEncoder for natural language query matching
+2. Adding default and custom intent patterns
+3. Matching user queries to intents
+4. Integrating intent matching with a model
 """
 
-from glyphh import GlyphhModel, Concept, EncoderConfig
-from glyphh import IntentEncoder, IntentPattern
+from glyphh import (
+    Encoder, EncoderConfig, Concept, GlyphhModel,
+    IntentEncoder, IntentPattern, DEFAULT_INTENT_PATTERNS,
+    LayerConfig, SegmentConfig, Role
+)
 
 # Configure encoder
-config = EncoderConfig(dimension=10000, seed=42)
+config = EncoderConfig(
+    dimension=10000,
+    seed=42,
+    layers=[
+        LayerConfig(
+            name="semantic",
+            segments=[
+                SegmentConfig(
+                    name="attributes",
+                    roles=[
+                        Role(name="type"),
+                        Role(name="domain"),
+                    ]
+                )
+            ]
+        )
+    ]
+)
 
-# Create intent encoder
+# Create encoder
+encoder = Encoder(config)
+
+# Create intent encoder (takes config, not encoder)
 intent_encoder = IntentEncoder(config)
 
 # Add default patterns for common operations
@@ -64,36 +87,49 @@ test_queries = [
     "find similar to machine learning",
     "what technique does image recognition use",
     "explain neural networks",
-    "predict what comes after data preprocessing",
-    "how many concepts are there",
+    "compare deep learning and machine learning",
 ]
 
 for query in test_queries:
     match = intent_encoder.match_intent(query)
-    confidence_indicator = "✓" if match.is_high_confidence() else "?"
+    confidence_indicator = "✓" if match.confidence > 0.5 else "?"
     print(f"  {confidence_indicator} '{query}'")
     print(f"      → {match.intent_type} (confidence: {match.confidence:.2f})")
 
-# Create model with intent encoder
-print("\nCreating model with intent encoder...")
-model = GlyphhModel(config)
-model.intent_encoder = intent_encoder
-
-# Add some concepts
+# Create and encode some concepts
+print("\nEncoding concepts...")
 concepts = [
-    Concept(name="machine learning", attributes={"type": "technique"}),
-    Concept(name="neural network", attributes={"type": "architecture"}),
-    Concept(name="image recognition", attributes={"type": "application"}),
+    Concept(name="machine learning", attributes={"type": "technique", "domain": "AI"}),
+    Concept(name="neural network", attributes={"type": "architecture", "domain": "AI"}),
+    Concept(name="image recognition", attributes={"type": "application", "domain": "AI"}),
 ]
 
+glyphs = []
 for concept in concepts:
-    model.encode(concept)
+    glyph = encoder.encode(concept)
+    glyphs.append(glyph)
+    print(f"  ✓ Encoded: {concept.name}")
 
-# Export model (includes intent patterns)
-model.export("model-with-intents.glyphh")
+# Package model with intent patterns
+print("\nPackaging model with intent patterns...")
+model = GlyphhModel(
+    name="model-with-intents",
+    version="1.0.0",
+    encoder_config=config,
+    glyphs=glyphs,
+    intent_patterns=intent_encoder.to_dict(),
+    metadata={"domain": "AI", "description": "Model with intent patterns"}
+)
+
+model.to_file("model-with-intents.glyphh")
 print("  ✓ Model exported with intent patterns")
 
 print("\nWhen deployed, the runtime will use these patterns for NL queries:")
-print("  POST /api/v1/my-model/query")
+print("  POST /api/v1/model-with-intents/query")
 print('  {"query": "find similar to machine learning"}')
 print("  → Returns match_method: 'rules' with high confidence")
+
+# Cleanup
+import os
+if os.path.exists("model-with-intents.glyphh"):
+    os.remove("model-with-intents.glyphh")

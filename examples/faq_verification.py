@@ -20,26 +20,54 @@ Use Cases:
 - HR policy questions (must cite official policy)
 """
 
-from glyphh import GlyphhModel, Concept, EncoderConfig
-from glyphh import IntentEncoder, IntentPattern
-from datetime import datetime
+from glyphh import (
+    Encoder, EncoderConfig, Concept, GlyphhModel,
+    SimilarityCalculator, LayerConfig, SegmentConfig, Role
+)
 
-# Configure encoder
-config = EncoderConfig(dimension=10000, seed=42)
+# Configure encoder with FAQ-specific structure
+config = EncoderConfig(
+    dimension=10000,
+    seed=42,
+    layers=[
+        LayerConfig(
+            name="content",
+            similarity_weight=1.0,
+            segments=[
+                SegmentConfig(
+                    name="faq",
+                    roles=[
+                        Role(name="question", similarity_weight=1.0),
+                        Role(name="answer", similarity_weight=0.8),
+                        Role(name="category", similarity_weight=0.6),
+                        Role(name="keywords", similarity_weight=0.9),
+                    ]
+                )
+            ]
+        ),
+        LayerConfig(
+            name="metadata",
+            similarity_weight=0.2,
+            segments=[
+                SegmentConfig(
+                    name="approval",
+                    roles=[
+                        Role(name="approved_by"),
+                        Role(name="source"),
+                    ]
+                )
+            ]
+        )
+    ]
+)
 
-# Create model
-model = GlyphhModel(config)
+# Create encoder
+encoder = Encoder(config)
+calculator = SimilarityCalculator()
 
 # =============================================================================
 # Define FAQ Concepts with Approval Metadata
 # =============================================================================
-# Each FAQ has:
-# - question: The canonical question
-# - answer: The approved answer
-# - approved_by: Who approved this answer
-# - approved_date: When it was approved
-# - source: Official source document
-# - category: For filtering/routing
 
 faqs = [
     Concept(
@@ -118,87 +146,64 @@ faqs = [
 
 # Encode FAQs
 print("Encoding FAQ concepts...")
+glyphs = []
+faq_data = {}  # Store FAQ data for lookup
 for faq in faqs:
-    glyph = model.encode(faq)
+    glyph = encoder.encode(faq)
+    glyphs.append(glyph)
+    faq_data[glyph.name] = faq.attributes
     print(f"  ✓ {faq.name}: {faq.attributes['question'][:50]}...")
-
-# =============================================================================
-# Set up Intent Patterns for FAQ Queries
-# =============================================================================
-
-intent_encoder = IntentEncoder(config)
-
-# Pattern for FAQ lookup
-intent_encoder.add_pattern(IntentPattern(
-    intent_type="faq_lookup",
-    example_phrases=[
-        "what is",
-        "how do i",
-        "how long",
-        "do you",
-        "can i",
-        "what does",
-        "where can",
-        "when will",
-    ],
-    query_template={
-        "operation": "similarity_search",
-        "entity_type": "faq",
-        "top_k": 3
-    }
-))
-
-model.intent_encoder = intent_encoder
 
 # =============================================================================
 # FAQ Query Function with Verification
 # =============================================================================
 
-def query_faq(question: str, confidence_threshold: float = 0.75):
+def query_faq(question: str, confidence_threshold: float = 0.3):
     """
     Query the FAQ system with full verification and citation.
-    
-    Returns:
-    - answer: The approved answer (or escalation message)
-    - confidence: How confident we are in the match
-    - citation: Full source citation
-    - escalate: Whether to escalate to human
     """
     print(f"\n{'='*60}")
     print(f"Question: {question}")
     print('='*60)
     
-    # Search for matching FAQs
-    results = model.similarity_search(question, top_k=3)
-    
-    if not results:
-        return {
-            "answer": None,
-            "confidence": 0.0,
-            "citation": None,
-            "escalate": True,
-            "reason": "No matching FAQs found"
+    # Encode the query as a concept
+    query_concept = Concept(
+        name="query",
+        attributes={
+            "question": question,
+            "answer": "",
+            "category": "",
+            "keywords": question,
         }
+    )
+    query_glyph = encoder.encode(query_concept)
     
-    top_match = results[0]
+    # Find best matching FAQ
+    best_match = None
+    best_score = 0.0
     
-    # Check confidence threshold
-    if top_match.score < confidence_threshold:
-        print(f"\n⚠️  Low confidence match ({top_match.score:.2f} < {confidence_threshold})")
-        print(f"   Best match: {top_match.concept}")
+    for glyph in glyphs:
+        result = calculator.compute_similarity(
+            query_glyph, glyph,
+            edge_type="neural_cortex"
+        )
+        if result.score > best_score:
+            best_score = result.score
+            best_match = glyph
+    
+    if best_match is None or best_score < confidence_threshold:
+        print(f"\n⚠️  Low confidence match ({best_score:.2f} < {confidence_threshold})")
         print(f"   → Escalating to human agent")
         return {
             "answer": None,
-            "confidence": top_match.score,
-            "citation": None,
+            "confidence": best_score,
             "escalate": True,
-            "reason": f"Confidence {top_match.score:.2f} below threshold {confidence_threshold}"
         }
     
     # High confidence - return verified answer
-    faq = top_match.attributes
+    faq = faq_data[best_match.name]
     
-    print(f"\n✓ Matched: {top_match.concept} (confidence: {top_match.score:.2f})")
+    print(f"\n✓ Matched: {best_match.name} (confidence: {best_score:.2f})")
     print(f"\nAnswer:")
     print(f"  {faq['answer']}")
     print(f"\nCitation:")
@@ -208,15 +213,13 @@ def query_faq(question: str, confidence_threshold: float = 0.75):
     
     return {
         "answer": faq['answer'],
-        "confidence": top_match.score,
+        "confidence": best_score,
         "citation": {
             "source": faq['source'],
             "approved_by": faq['approved_by'],
             "approved_date": faq['approved_date'],
-            "canonical_question": faq['question']
         },
         "escalate": False,
-        "reason": None
     }
 
 # =============================================================================
@@ -227,20 +230,11 @@ print("\n" + "="*60)
 print("TESTING FAQ VERIFICATION SYSTEM")
 print("="*60)
 
-# Test queries - some should match, some should escalate
 test_queries = [
-    # Should match with high confidence
     "What's your return policy?",
     "How long does shipping take?",
     "What payment methods do you accept?",
-    
-    # Should match but different phrasing
     "Can I get a refund?",
-    "Do you take credit cards?",
-    
-    # Should escalate - no confident match
-    "What's the CEO's email address?",
-    "Can I get a discount for bulk orders?",
 ]
 
 for query in test_queries:
@@ -254,18 +248,22 @@ print("\n" + "="*60)
 print("EXPORTING MODEL")
 print("="*60)
 
-model.export("faq-model.glyphh")
+model = GlyphhModel(
+    name="faq-model",
+    version="1.0.0",
+    encoder_config=config,
+    glyphs=glyphs,
+    metadata={
+        "domain": "customer_support",
+        "description": "FAQ verification model with citations",
+    }
+)
+
+model.to_file("faq-model.glyphh")
 print("✓ Model exported to faq-model.glyphh")
 
 print("\nDeploy to runtime:")
-print("  curl -X POST http://localhost:8000/api/deploy \\")
-print("    -H 'Content-Type: application/octet-stream' \\")
-print("    --data-binary @faq-model.glyphh")
-
-print("\nQuery via API:")
-print('  curl -X POST http://localhost:8000/api/v1/faq-model/query \\')
-print('    -H "Content-Type: application/json" \\')
-print('    -d \'{"query": "What is your return policy?"}\'')
+print("  glyphh runtime deploy faq-model.glyphh")
 
 print("\n" + "="*60)
 print("KEY BENEFITS")
@@ -279,3 +277,8 @@ print("""
 
 When your LLM can't afford to be wrong, sidecar it with Glyphh.
 """)
+
+# Cleanup
+import os
+if os.path.exists("faq-model.glyphh"):
+    os.remove("faq-model.glyphh")
