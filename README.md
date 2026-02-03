@@ -1,6 +1,6 @@
 <p align="center">
   <picture>
-    <img src="logo/glyphh-logo-hor.png" alt="Glyphh Logo" width="200">
+    <img src="logo/glyphh-logo-hor.png" alt="Glyphh Logo" width="400">
   </picture>
 </p>
 
