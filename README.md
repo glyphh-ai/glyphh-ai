@@ -1,6 +1,8 @@
 <p align="center">
   <picture>
-    <img src="logo/glyphh-logo-hor.png" alt="Glyphh Logo" width="400">
+    <source media="(prefers-color-scheme: dark)" srcset="logo/glyphh-logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="logo/glyphh-logo.png">
+    <img src="logo/glyphh-logo.png" alt="Glyphh Logo" width="200">
   </picture>
 </p>
 
